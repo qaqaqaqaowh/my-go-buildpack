@@ -4,3 +4,66 @@ mv go /usr/local
 export GOROOT=$HOME/go
 export GOPATH=$HOME/work
 export PATH=$PATH:$GOROOT/bin:$GOPATH/bin
+
+loadEnvDir() {
+    local envFlags=()
+    envFlags+=("CGO_CFLAGS")
+    envFlags+=("CGO_CPPFLAGS")
+    envFlags+=("CGO_CXXFLAGS")
+    envFlags+=("CGO_LDFLAGS")
+    envFlags+=("GO_LINKER_SYMBOL")
+    envFlags+=("GO_LINKER_VALUE")
+    envFlags+=("GO15VENDOREXPERIMENT")
+    envFlags+=("GOVERSION")
+    envFlags+=("GO_INSTALL_PACKAGE_SPEC")
+    envFlags+=("GO_INSTALL_TOOLS_IN_IMAGE")
+    envFlags+=("GO_SETUP_GOPATH_IN_IMAGE")
+    envFlags+=("GO_TEST_SKIP_BENCHMARK")
+    envFlags+=("GLIDE_SKIP_INSTALL")
+    local env_dir="${1}"
+    if [ ! -z "${env_dir}" ]; then
+        mkdir -p "${env_dir}"
+        env_dir=$(cd "${env_dir}/" && pwd)
+        for key in ${envFlags[@]}; do
+            if [ -f "${env_dir}/${key}" ]; then
+                export "${key}=$(cat "${env_dir}/${key}" | sed -e "s:\${build_dir}:${build}:")"
+            fi
+        done
+    fi
+}
+
+expandVer() {
+    local v="${1}"
+    if [[ "${v}" =~ ^[[:digit:]]+ ]]; then
+        v="go${v}"
+    fi
+    echo $(<${DataJSON} jq -r 'if .Go.VersionExpansion."'${v}'" then .Go.VersionExpansion."'${v}'" else "'${v}'" end')
+}
+
+loadEnvDir "${env_dir}"
+
+ver=$(expandVer $ver)
+
+if [ -e "${build}/bin" -a ! -d "${build}/bin" ]; then
+    exit 1
+fi
+
+ensureGo "${ver}"
+
+mkdir -p "${build}/bin"
+
+# If $GO_LINKER_SYMBOL and GO_LINKER_VALUE are set, tell the linker to DTRT
+FLAGS=(-tags heroku)
+if [ -n "${GO_LINKER_SYMBOL}" -a -n "${GO_LINKER_VALUE}" ]; then
+    case "${ver}" in
+        go1|go1.0.*|go1.1|go1.1.*|go1.2|go1.2.*|go1.3|go1.3.*|go1.4|go1.4.*)
+            xval="${GO_LINKER_SYMBOL} ${GO_LINKER_VALUE}"
+        ;;
+        *)
+            xval="${GO_LINKER_SYMBOL}=${GO_LINKER_VALUE}"
+        ;;
+    esac
+    FLAGS=(${FLAGS[@]} -ldflags "-X ${xval}")
+fi
+
+export GOPATH
