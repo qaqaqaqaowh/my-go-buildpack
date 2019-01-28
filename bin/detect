@@ -1,1 +1,2 @@
-exit 1
+echo "My buildpack now"
+exit 0
